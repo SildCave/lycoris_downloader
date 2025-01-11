@@ -1,0 +1,101 @@
+name: Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - v[0-9]+.*
+
+
+jobs:
+  test:
+    name: Test
+    needs: clippy
+    runs-on: ubuntu-latest
+    steps:
+      # Downloads a copy of the code in your repository before running CI tests
+      - name: Check out repository code
+        # The uses keyword specifies that this step will run v4 of the actions/checkout action.
+        # This is an action that checks out your repository onto the runner, allowing you to run scripts or other actions against your code (such as build and test tools).
+        # You should use the checkout action any time your workflow will run against the repository's code.
+        uses: actions/checkout@v4
+
+      # This GitHub Action installs a Rust toolchain using rustup. It is designed for one-line concise usage and good defaults.
+      - name: Install the Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Run tests
+        run: cargo test
+
+  # `fmt` container job
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: rustfmt
+      - name: Enforce formatting
+        run: cargo fmt --check
+
+  clippy:
+    name: Clippy
+    needs: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy
+      - name: Linting
+        run: cargo clippy -- -D warnings
+
+  create-release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          # (required) GitHub token for creating GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  upload-assets:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
+          # Note that glob pattern is not supported yet.
+          bin: lycoris_downloader
+          # (optional) Target triple, default is host triple.
+          # This is optional but it is recommended that this always be set to
+          # clarify which target you are building for if macOS is included in
+          # the matrix because GitHub Actions changed the default architecture
+          # of macos-latest since macos-14.
+          target: ${{ matrix.target }}
+          # (optional) On which platform to distribute the `.tar.gz` file.
+          # [default value: unix]
+          # [possible values: all, unix, windows, none]
+          tar: unix
+          # (optional) On which platform to distribute the `.zip` file.
+          # [default value: windows]
+          # [possible values: all, unix, windows, none]
+          zip: windows
+          # (required) GitHub token for uploading assets to GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
